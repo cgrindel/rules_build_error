@@ -55,6 +55,73 @@ exit_if_containing_an_empty_file() {
     done
 }
 
+unresolve_tool_dir() {
+    # Rewrite the build tool's resolved directory to the directory it was invoked from
+    #
+    # GCC finds its sub-tools (e.g. 'ld') from the resolved, absolute path of its own
+    # executable and prints that path in diagnostics. Bazel invokes the tool by a
+    # relative path (e.g. 'external/<repo>/bin/gcc'), and the resolved location of
+    # that path differs between machines. Replacing the resolved directory with the
+    # invoked one makes the captured output the same on every machine.
+    #
+    # Args:
+    #   $1: build tool path
+    #   $2...: files to rewrite
+    local tool
+    local tool_dir
+    local path
+    local target
+    local hops
+    local real_dir
+    local output_file
+    tool="$1"
+    shift
+
+    if [[ "${tool}" != */* || ! -e "${tool}" ]]; then
+        return 0
+    fi
+    tool_dir="$(dirname "${tool}")"
+
+    path="${tool}"
+    hops=0
+    while [[ -L "${path}" ]]; do
+        hops=$((hops + 1))
+        if [[ "${hops}" -gt 40 ]]; then
+            echo "ERROR: too many levels of symbolic links: ${tool}" >&2
+            exit 1
+        fi
+        target="$(readlink "${path}")"
+        if [[ "${target}" != /* ]]; then
+            target="$(dirname "${path}")/${target}"
+        fi
+        path="${target}"
+    done
+    real_dir="$(cd -P "$(dirname "${path}")" && pwd -P)"
+    if [[ "${real_dir}" == "${tool_dir}" ]]; then
+        return 0
+    fi
+
+    for output_file in "$@"; do
+        if [[ ! -f "${output_file}" ]]; then
+            continue
+        fi
+        # ENVIRON and index() keep the match literal for any character in the paths
+        FROM="${real_dir}/" TO="${tool_dir}/" awk '
+            BEGIN { from = ENVIRON["FROM"]; to = ENVIRON["TO"] }
+            {
+                line = $0
+                out = ""
+                while ((i = index(line, from)) > 0) {
+                    out = out substr(line, 1, i - 1) to
+                    line = substr(line, i + length(from))
+                }
+                print out line
+            }
+        ' "${output_file}" >"${output_file}.tmp"
+        mv "${output_file}.tmp" "${output_file}"
+    done
+}
+
 files_to_check=()
 files_to_touch=()
 stdout_file="/dev/null"
@@ -92,3 +159,4 @@ if [[ "${#files_to_check[@]}" -gt 0 ]]; then
 fi
 
 "$@" >"${stdout_file}" 2>"${stderr_file}" || true
+unresolve_tool_dir "$1" "${stdout_file}" "${stderr_file}"

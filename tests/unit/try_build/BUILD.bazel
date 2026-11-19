@@ -1,0 +1,18 @@
+load("@bazel_skylib//rules:build_test.bzl", "build_test")
+
+# Fails to build if the captured output contains the resolved directory of the build tool.
+genrule(
+    name = "unresolve_tool_dir",
+    srcs = [
+        "fake_gcc.bash",
+        "//lang/private/script:try_build",
+    ],
+    outs = ["unresolve_tool_dir.ok"],
+    cmd = "bash $(execpath check_unresolve_tool_dir.bash) $(execpath //lang/private/script:try_build) $(execpath fake_gcc.bash) $@",
+    tools = ["check_unresolve_tool_dir.bash"],
+)
+
+build_test(
+    name = "unresolve_tool_dir_test",
+    targets = [":unresolve_tool_dir"],
+)

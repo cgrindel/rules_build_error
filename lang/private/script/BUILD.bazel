@@ -18,4 +18,8 @@ filegroup(
 filegroup(
     name = "try_build",
     srcs = ["try_build.bash"],
+    visibility = [
+        "//lang:__subpackages__",
+        "//tests/unit/try_build:__pkg__",
+    ],
 )
